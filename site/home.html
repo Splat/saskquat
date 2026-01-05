@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sasquat Results Viewer</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header>
+  <a href="/index.html">
+    <img src="images/SASQUAT_logo.png" alt="Logo" width="159" height="43">
+  </a>
+  <h1>results.json viewer</h1>
+  <div class="sub">
+    Loads <span class="mono">results.json</span> from the data directory of the site next to this HTML file. Supports heuristic scoring, grouping by edit-variant class and TLD variant, and investigator workflow links.
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card">
+      <h2>Data & context</h2>
+      <label>Base domain (for variant classification and “redirect-to-brand” detection)</label>
+      <input id="baseDomain" type="text" placeholder="e.g., comcast.com" />
+      <div class="row">
+        <div>
+          <label>Results JSON path</label>
+          <input id="jsonPath" type="text" value="data/results.json" />
+        </div>
+        <div style="flex:0.6">
+          <label>&nbsp;</label>
+          <button class="btn" id="loadBtn">Load results</button>
+        </div>
+      </div>
+
+      <details>
+        <summary>Heuristic options</summary>
+        <label>Known sinkhole / takedown IPs (comma/space/newline separated)</label>
+        <textarea id="sinkholeIps" placeholder="e.g. 203.0.113.10\n198.51.100.5"></textarea>
+
+        <label>Parking / registrar indicators (matched against NS/MX/CNAME/HTTP Location/HTTP body-less hints)</label>
+        <textarea id="parkingIndicators"></textarea>
+
+        <label>Known TLS issuer allowlist (reduce score if issuer matches)</label>
+        <textarea id="knownIssuers"></textarea>
+
+        <div class="warnbox">
+          Scoring is a prioritization heuristic, not an adjudication. Treat the output as a triage queue: validate with content review, network reputation, and registrar/hosting escalation workflows.
+        </div>
+      </details>
+
+      <div class="kpi" id="kpi"></div>
+      <div class="split" id="activeFilters"></div>
+    </div>
+
+    <div class="card">
+      <h2>Filters</h2>
+      <label>Search (domain, IP, issuer, HTTP location)</label>
+      <input id="search" type="search" placeholder="type to filter…" />
+      <div class="row">
+        <div>
+          <label>Variant class</label>
+          <select id="variantFilter">
+            <option value="">All</option>
+            <option value="tld">TLD-only</option>
+            <option value="insert">Insert</option>
+            <option value="delete">Delete</option>
+            <option value="substitute">Substitute</option>
+            <option value="transpose">Transpose</option>
+            <option value="other">Other/complex</option>
+            <option value="unknown">Unknown (no base domain)</option>
+          </select>
+        </div>
+        <div>
+          <label>TLD variant</label>
+          <select id="tldFilter">
+            <option value="">All</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Min score</label>
+          <input id="minScore" type="text" value="0" />
+        </div>
+        <div>
+          <label>Max score</label>
+          <input id="maxScore" type="text" value="999" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Only resolvable</label>
+          <select id="resolvableOnly">
+            <option value="">All</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+        <div>
+          <label>HTTP attempted</label>
+          <select id="httpAttempted">
+            <option value="">All</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+      </div>
+
+      <details>
+        <summary>Grouping view</summary>
+        <div class="small" style="margin-top:8px;">
+          Click a group to filter the table to that group. Use “All” in filters to clear.
+        </div>
+        <div class="group">
+          <h3>By variant class</h3>
+          <div class="hint">Computed vs base domain using edit operations.</div>
+          <div class="groupList" id="groupVariant"></div>
+        </div>
+        <div class="group">
+          <h3>By TLD variant</h3>
+          <div class="hint">Groups by observed TLD; if base domain is provided, “TLD-only” flags are computed separately.</div>
+          <div class="groupList" id="groupTld"></div>
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Scoring rubric</h2>
+      <div class="small" style="line-height:1.45">
+        The score is additive; higher means “review sooner”.
+        <ul>
+          <li><span class="mono">+25</span> sinkhole/takedown IP match</li>
+          <li><span class="mono">+15</span> parking/registrar indicator match (NS/MX/CNAME/Location)</li>
+          <li><span class="mono">+12</span> redirect-to-brand (Location host contains base registrable domain or brand token)</li>
+          <li><span class="mono">+10</span> HTTP status suggests landing/forwarding (30x, 200, 405) with indicators</li>
+          <li><span class="mono">+8</span> has MX (may indicate email fraud surface) + resolvable</li>
+          <li><span class="mono">+8</span> TLS present but issuer not in allowlist</li>
+          <li><span class="mono">+0–8</span> TLS issuer entropy (higher = slightly higher priority)</li>
+        </ul>
+        Tweak the indicator lists in the options panel for your environment.
+      </div>
+      <details>
+        <summary>Investigation quick links</summary>
+        <div class="small" style="margin-top:8px;line-height:1.5">
+          Each row includes:
+          <ul>
+            <li><span class="mono">Open</span>: https://&lt;domain&gt;/ (new tab)</li>
+            <li><span class="mono">RDAP</span>: rdap.org lookup for the domain</li>
+            <li><span class="mono">ICANN</span>: ICANN WHOIS lookup page (useful when RDAP blocks)</li>
+            <li><span class="mono">whois.com</span>: fallback WHOIS view</li>
+          </ul>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th data-k="score">Score</th>
+          <th data-k="domain">Domain</th>
+          <th data-k="variantClass">Variant</th>
+          <th data-k="tld">TLD</th>
+          <th data-k="resolvable">DNS</th>
+          <th data-k="ips">A/AAAA</th>
+          <th data-k="ns">NS</th>
+          <th data-k="mx">MX</th>
+          <th data-k="tlsIssuer">TLS Issuer</th>
+          <th data-k="httpStatus">HTTP</th>
+          <th data-k="location">Location</th>
+          <th data-k="links">Links</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  
+  <div class="card" style="margin-top:14px;">
+    <h2>HTTP, Redirects, and Fingerprinting</h2>
+    <div class="muted small" style="margin-top:-6px;">
+      Click a row to view redirect chain, title metadata, and content fingerprint indicators (when present in results.json).
+      Note: title/fingerprints require the scanner to capture them; browser-side fetching is typically blocked by CORS.
+    </div>
+    <div id="inspector" style="margin-top:10px;">
+      <div class="pill">No record selected.</div>
+    </div>
+  </div>
+
+</div>
+
+  <div class="footer">
+    Tip: If you open this file directly from disk, browser fetch() may be blocked. Prefer serving the directory (e.g., <span class="mono">python -m http.server</span>) so the viewer can load <span class="mono">results.json</span>.
+  </div>
+</main>
+
+<script src="js/utilities.js"></script>
+<script src="js/state.js"></script>
+<script src="js/load.js"></script>
+
+</body>
+</html>
