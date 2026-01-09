@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -52,21 +53,19 @@ type TLSResult struct {
 	DNSNames     []string
 	CommonName   string
 	SerialNumber string
-	// TODO: HasRedirect 	bool
-	// TODO: RedirectChain	[]string
-	// TODO: Remediated 	bool
 }
 
 type HTTPResult struct {
-	Attempted  bool
-	URL        string
-	Status     string
-	StatusCode int
-	Location   string
-	Server     string
+	Attempted     bool
+	URL           string
+	Status        string
+	StatusCode    int
+	Location      string
+	Server        string
+	RedirectChain []string
+	// TODO: For fast lookup downstream
 	// TODO: HasRedirect 	bool
-	// TODO: RedirectChain	[]string
-	// TODO: Remediated 	bool
+	// TODO: Remediated 	bool // validate last redirect == Verification.Domain
 }
 
 type Verification struct {
@@ -75,7 +74,7 @@ type Verification struct {
 	DNS        DNSResult
 	TLS        *TLSResult
 	HTTP       *HTTPResult
-	Resolvable bool // TODO: double check it works to mark true is one or other is true https||http
+	Resolvable bool
 	HasMail    bool
 }
 
@@ -188,7 +187,8 @@ func lookupDNS(ctx context.Context, domain string) (DNSResult, error) {
 		}
 	}
 
-	// Return whichever error is most meaningful; DNS can fail per-record while others succeed.
+	// Return whichever error is most meaningful;
+	// DNS can fail per-record while others succeed.
 	// If nothing was found and all lookups failed, return a generic error.
 	if !r.HasA && !r.HasAAAA && !r.HasCNAME && !r.HasMX && !r.HasNS {
 		if err != nil {
@@ -242,17 +242,28 @@ func fetchTLS(ctx context.Context, domain string) TLSResult {
 	return res
 }
 
+// fetchHTTP executes the provided domain and returns the HTTPResult
+// The last item in the HTTPResult.RedirectChain array is the final landing spot.
 func fetchHTTP(ctx context.Context, domain string, cfg Config) HTTPResult {
-	res := HTTPResult{Attempted: true}
+	res := HTTPResult{Attempted: true, RedirectChain: []string{}}
 	target := "https://" + domain + "/"
 	res.URL = target
 
 	client := &http.Client{
 		Timeout: cfg.HTTPTimeout,
 	}
-	if !cfg.HTTPFollowRedirects {
+
+	if !cfg.HTTPFollowRedirects { // don't follow the redirects and short circuit
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
+		}
+	} else { // follow redirects to a maximum of 10 (might change in the future)
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			res.RedirectChain = append(res.RedirectChain, req.URL.String())
+			return nil
 		}
 	}
 
@@ -262,9 +273,11 @@ func fetchHTTP(ctx context.Context, domain string, cfg Config) HTTPResult {
 	}
 	req.Header.Set("User-Agent", cfg.UserAgent)
 
+	// TODO: Factor this out to a processHTTP method to compliment this fetchHTTP for unit testing
 	resp, err := client.Do(req)
 	if err != nil {
 		// If HTTPS fails, try HTTP as a fallback.
+		// TODO: recall fetchHTTP without HTTPS to reduce code
 		target = "http://" + domain + "/"
 		res.URL = target
 		req2, err2 := http.NewRequestWithContext(ctx, http.MethodHead, target, nil)
@@ -292,7 +305,7 @@ func fetchHTTP(ctx context.Context, domain string, cfg Config) HTTPResult {
 	return res
 }
 
-// Optional helper for stronger TLS parsing later.
+// TODO: Optional helper for stronger TLS parsing later.
 func parseLeafCert(_ *x509.Certificate) {
 	// TODO: inspect if these leaf certs somehow match the base domain OU or something
 }
