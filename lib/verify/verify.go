@@ -126,7 +126,7 @@ func VerifyDomain(ctx context.Context, domain string, cfg Config) (Verification,
 		httpCtx, cancelHTTP := context.WithTimeout(ctx, cfg.HTTPTimeout)
 		defer cancelHTTP()
 		if v.Resolvable {
-			hr := fetchHTTP(httpCtx, ascii, cfg)
+			hr := fetchHTTP(httpCtx, true, ascii, cfg)
 			v.HTTP = &hr
 		}
 	}
@@ -244,30 +244,11 @@ func fetchTLS(ctx context.Context, domain string) TLSResult {
 
 // fetchHTTP executes the provided domain and returns the HTTPResult
 // The last item in the HTTPResult.RedirectChain array is the final landing spot.
-func fetchHTTP(ctx context.Context, domain string, cfg Config) HTTPResult {
-	res := HTTPResult{Attempted: true, RedirectChain: []string{}}
-	target := "https://" + domain + "/"
-	res.URL = target
+func fetchHTTP(ctx context.Context, https bool, domain string, cfg Config) HTTPResult {
+	res := configureResult(https, domain)
+	client := configureClient(cfg, res)
 
-	client := &http.Client{
-		Timeout: cfg.HTTPTimeout,
-	}
-
-	if !cfg.HTTPFollowRedirects { // don't follow the redirects and short circuit
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	} else { // follow redirects to a maximum of 10 (might change in the future)
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("stopped after 10 redirects")
-			}
-			res.RedirectChain = append(res.RedirectChain, req.URL.String())
-			return nil
-		}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, res.URL, nil)
 	if err != nil {
 		return res
 	}
@@ -278,9 +259,8 @@ func fetchHTTP(ctx context.Context, domain string, cfg Config) HTTPResult {
 	if err != nil {
 		// If HTTPS fails, try HTTP as a fallback.
 		// TODO: recall fetchHTTP without HTTPS to reduce code
-		target = "http://" + domain + "/"
-		res.URL = target
-		req2, err2 := http.NewRequestWithContext(ctx, http.MethodHead, target, nil)
+		res.URL = getTargetDomain(false, domain)
+		req2, err2 := http.NewRequestWithContext(ctx, http.MethodHead, res.URL, nil)
 		if err2 != nil {
 			return res
 		}
@@ -296,13 +276,65 @@ func fetchHTTP(ctx context.Context, domain string, cfg Config) HTTPResult {
 		res.Server = resp2.Header.Get("Server")
 		return res
 	}
-	defer resp.Body.Close()
 
 	res.Status = resp.Status
 	res.StatusCode = resp.StatusCode
 	res.Location = resp.Header.Get("Location")
 	res.Server = resp.Header.Get("Server")
 	return res
+}
+
+func getTargetDomain(https bool, domain string) string {
+	if https {
+		return "https://" + domain + "/"
+	} else {
+		return "http://" + domain + "/"
+	}
+}
+
+// configureResult initializes an HTTPResult struct with attempted flag set to true and an empty RedirectChain.
+// The URL field is set to the target domain after extracting it from the provided domain string.
+func configureResult(https bool, domain string) HTTPResult {
+	res := HTTPResult{Attempted: true, RedirectChain: []string{}}
+	target := getTargetDomain(https, domain)
+	res.URL = target
+
+	return res
+}
+
+func configureClient(cfg Config, result HTTPResult) http.Client {
+	client := &http.Client{
+		Timeout: cfg.HTTPTimeout,
+	}
+
+	if !cfg.HTTPFollowRedirects { // don't follow the redirects and short circuit
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	} else { // follow redirects to a maximum of 10 (might change in the future)
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			result.RedirectChain = append(result.RedirectChain, req.URL.String())
+			return nil
+		}
+	}
+	return *client
+}
+
+// TODO: fetchHTTP runs req (request) twice and this should be factored out here
+func runRequest() {
+
+}
+
+func processRequest() {
+
+}
+
+// TODO: Factor this out to a processHTTP method to compliment this fetchHTTP for unit testing
+func processResults() {
+
 }
 
 // TODO: Optional helper for stronger TLS parsing later.
