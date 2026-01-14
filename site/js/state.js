@@ -11,7 +11,9 @@ let CFG = {
     brandToken:""
 };
 
+
 function defaultLists(){
+    // TODO: This needs to be computed from results as opposed to hard coded
     $("parkingIndicators").value = [
         "domaincontrol.com","secureserver.net","godaddy","afternic","dan.com",
         "sedo","parkingcrew","bodis","namecheap","namesilo","googlehosted.com",
@@ -19,6 +21,7 @@ function defaultLists(){
         "coming soon","under construction","this domain is for sale","parked"
     ].join("\n");
 
+    // TODO: This needs to be computed from results as opposed to hard coded
     $("knownIssuers").value = [
         "let's encrypt","digicert","sectigo","comodoca","globalsign","entrust",
         "godaddy","amazon","cloudflare","microsoft"
@@ -48,7 +51,7 @@ function normalizeRecord(r){
         .concat(dns.AAAA||[])
         .filter(Boolean);
 
-    const v = classifyVariant(CFG.baseDomain, d);
+    const v = classifyVariant(CFG.baseDomain, d); // TODO: this doens't seem to do anything
     const scored = scoreRecord(r, CFG);
 
     return {
