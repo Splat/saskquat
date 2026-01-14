@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// Output is the shape of what is returned to the results.json and thus site
 type Output struct {
 	Domain     string             `json:"domain"`
 	Resolvable bool               `json:"resolvable"`
@@ -25,6 +26,7 @@ type Output struct {
 	HTTP       *verify.HTTPResult `json:"http,omitempty"`
 }
 
+// TODO: need to move the bulk of main to `lib/processor/processor.go` and this needs to become the CLI
 func main() {
 	banner.PrintBanner()
 
@@ -63,7 +65,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	permutationCount := 0
+	// TODO: add a completion percentage bard on the CLI for tracking
+	permutationCount := 0 // just for tracking logging purposes
 	for _, d := range candidates {
 		logger.Debug("processing candidates main", "strategy", d.StrategyName, "count", len(d.Permutations))
 		permutationCount += len(d.Permutations)
